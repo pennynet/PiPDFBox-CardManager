@@ -40,7 +40,9 @@ PDF parsing, PAdES assembly and PDF-level validation belong to the separate **Pi
 
 ## Development status
 
-The initial branch establishes documentation and package boundaries only. Hardware integration, service endpoints, installer and provider profiles will be added in reviewed increments.
+This branch establishes the initial architecture, domain models and provider-adapter contracts. It includes an initial read-only D-TRUST metadata adapter, optional PC/SC reader discovery and automated unit tests.
+
+It does not yet include production signing operations, a local service/API endpoint, trust-anchor downloader, reader event monitoring or Debian/systemd installer. These will be added in reviewed increments.
 
 Initial development target: Python 3.13 on Debian 13 / Raspberry Pi OS Trixie. Hardware and provider compatibility will be declared per adapter, not assumed globally.
 
