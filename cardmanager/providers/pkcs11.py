@@ -63,7 +63,7 @@ class Pkcs11Module:
         try:
             return loader(self._module_path)
         except Exception as exc:
-            raise Pkcs11Error("PKCS#11 module could not be loaded") from exc
+            raise Pkcs11Error("PKCS#11 module could not be loaded") from None
 
     def list_tokens(self) -> tuple[Pkcs11TokenInfo, ...]:
         try:
