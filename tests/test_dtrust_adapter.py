@@ -1,15 +1,17 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
 from cardmanager.domain import CertificateRole, ReaderState
 from cardmanager.providers.base import ProviderError
 from cardmanager.providers.dtrust import (
-    BackendCertificate, BackendMechanism, BackendReader, DTrustAdapter,
+    BackendCertificate,
+    BackendMechanism,
+    BackendReader,
+    DTrustAdapter,
 )
 
-
-NOW = datetime.now(timezone.utc)
+NOW = datetime.now(UTC)
 FINGERPRINT = "a" * 64
 
 

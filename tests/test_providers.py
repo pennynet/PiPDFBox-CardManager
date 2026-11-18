@@ -1,12 +1,20 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
 from cardmanager.domain import (
-    Card, CardState, Certificate, CertificateRole, Reader, ReaderState, SigningMechanism,
+    Card,
+    CardState,
+    Certificate,
+    CertificateRole,
+    Reader,
+    ReaderState,
+    SigningMechanism,
 )
 from cardmanager.providers.base import (
-    DuplicateProviderError, ProviderNotFoundError, ProviderRegistry,
+    DuplicateProviderError,
+    ProviderNotFoundError,
+    ProviderRegistry,
 )
 
 
@@ -21,7 +29,7 @@ class FakeProvider:
 
     def list_certificates(self, card_id):
         assert card_id == "card-1"
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         return (Certificate(
             "cert-1", card_id, CertificateRole.SIGNING, "Example CA",
             now, now.replace(year=now.year + 1), "RSA", 3072,

@@ -9,10 +9,15 @@ from dataclasses import dataclass
 from datetime import datetime
 
 from cardmanager.domain import (
-    Card, CardState, Certificate, CertificateRole, Reader, ReaderState, SigningMechanism,
+    Card,
+    CardState,
+    Certificate,
+    CertificateRole,
+    Reader,
+    ReaderState,
+    SigningMechanism,
 )
 from cardmanager.providers.base import ProviderError
-
 
 # Observed during the initial hardware investigation. Keep matching
 # configurable: ATR alone is not a globally unique product identifier.
@@ -121,6 +126,8 @@ class DTrustAdapter:
                 )
                 for item in self._backend.list_certificates(reader_id)
             )
+        except ProviderError:
+            raise
         except Exception as exc:
             raise ProviderError("D-TRUST certificate metadata lookup failed") from exc
 

@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
@@ -47,7 +47,7 @@ def test_certificate_requires_timezone_aware_validity():
 
 
 def test_certificate_validity_order_is_checked():
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     with pytest.raises(ValueError, match="later"):
         Certificate(
             "cert-1", "card-1", CertificateRole.SIGNING, None,
