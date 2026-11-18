@@ -92,3 +92,24 @@ The virtual environment is `.venv`. Do not assume the current Pi checkout has th
 ## Latest Pi test feedback (2026-11-18)
 
 The user initially ran the new branch on the Raspberry Pi: 34 tests collected, 33 passed and one failed. The failing test was `test_loader_errors_are_wrapped_without_leaking_low_level_text`; implementation correctly wrapped the loader error with the message `PKCS#11 module could not be loaded`, while the older assertion expected `token discovery failed`. During review, the chained original exception was also identified as a possible way for low-level device details to appear in tracebacks. The branch was updated to suppress that exception chain (`raise ... from None`) and the test now checks the stable message and that `__cause__` is absent. The user reran the suite successfully: 34 passed in 0.36s.
+
+## Follow-up PKCS#11 slot/CAN investigation (2026-11-18)
+
+Additional live observations from the Raspberry Pi after the initial certificate-discovery test:
+
+- `pkcs11-tool --show-info` returned Cryptoki 3.0 and OpenSC 0.27 library information immediately, without a CAN prompt.
+- `pkcs11-tool --list-slots` displayed slot 0 and the cyberJack reader, then stalled while resolving token details. The user cancelled with Ctrl+C rather than entering CAN.
+- `pkcs11-tool --list-mechanisms` completed without a CAN prompt. Reported mechanisms include RSA 3072-bit PKCS#1 v1.5, SHA-256/384/512 with RSA, RSA-PSS and SHA-256/384/512 with RSA-PSS, plus RSA-OAEP and digest mechanisms.
+- `pkcs11-tool --list-objects --type pubkey` displayed one RSA 3072-bit public-key object labelled `Signaturzertifikat`, ID `0x02`, with `encrypt`, `verify`, and `verifyRecover` usage. The full modulus is intentionally not stored here.
+- Python `pkcs11.lib(...).get_slots(token_present=True)` returned two slots quickly. Their descriptions identify the same reader; slot IDs were 0 and 1.
+- Python `get_tokens()` / `slot.get_token()` triggered a CAN prompt on the protected reader path in the user's tests. A subsequent `Pkcs11Module.list_signing_certificates()` invocation also triggered a CAN prompt and was cancelled.
+
+### Interpretation and implementation constraint
+
+The CLI evidence shows that some slot-level PKCS#11 operations and public-key object enumeration work without a CAN prompt, while Python token metadata retrieval through `get_tokens()` / `get_token()` can trigger one. This does **not** yet establish which exact PKCS#11 call inside OpenSC initiates the protected interaction, nor does it prove that certificate enumeration can always be done without CAN.
+
+Do not implement a workaround by disabling protected authentication, suppressing the reader prompt, or bypassing card security. Do not claim that certificate discovery is CAN-free. The current `list_signing_certificates()` implementation still uses `get_tokens()` and `token.open(rw=False)`; its earlier successful hardware run is not sufficient to guarantee repeatable CAN-free behavior.
+
+Before changing the provider, identify a supported python-pkcs11/OpenSC API path that can select the intended slot/token without the interactive token-metadata call, and verify it on the real card. Keep reader/slot discovery, token metadata, certificate enumeration, and any protected-path interaction as separate explicit operations. If the library cannot provide this safely, expose the operation as potentially interactive and document that fact rather than attempting a low-level bypass.
+
+No PIN login, private-key enumeration, signing, Authentication-PIN access, or security-setting changes were performed in this investigation.
