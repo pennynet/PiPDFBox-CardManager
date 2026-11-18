@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from enum import IntEnum
 
 import pytest
 
@@ -75,3 +76,21 @@ def test_token_enumeration_does_not_require_session_or_pin():
     assert result[0].label == token.label
     assert not hasattr(module, "open_session")
     assert not hasattr(module, "sign")
+
+
+class FakeTokenFlag(IntEnum):
+    LOGIN_REQUIRED = 4
+    TOKEN_INITIALIZED = 1024
+
+
+def test_integer_enum_flags_are_reported_by_name():
+    module = Pkcs11Module(
+        "/usr/lib/example-pkcs11.so",
+        library_loader=lambda path: FakeLibrary([
+            FakeToken(flags=(FakeTokenFlag.TOKEN_INITIALIZED, FakeTokenFlag.LOGIN_REQUIRED))
+        ]),
+    )
+
+    tokens = module.list_tokens()
+
+    assert tokens[0].flags == ("login_required", "token_initialized")
