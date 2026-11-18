@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pipdfbox-cardmanager"
+version = "0.1.0"
+description = "Provider-neutral smart-card and reader management service"
+readme = "README.md"
+requires-python = ">=3.13"
+license = { text = "Proprietary - licensing to be decided" }
+authors = [{ name = "PiPDFBox contributors" }]
+dependencies = []
+
+[project.optional-dependencies]
+pcsc = ["pyscard>=2.0,<3"]
+pkcs11 = ["python-pkcs11>=0.9,<1"]
+dev = ["pytest>=8,<9", "ruff>=0.9"]
+
+[tool.setuptools.packages.find]
+include = ["cardmanager*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
