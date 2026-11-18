@@ -80,4 +80,8 @@ def _normalise_flags(value: object) -> tuple[str, ...]:
         values = tuple(value)  # PKCS#11 flag sets are iterable
     except TypeError:
         values = (value,)
-    return tuple(sorted({str(item).lower() for item in values}))
+    names = {
+        str(getattr(item, "name", None) or item).lower()
+        for item in values
+    }
+    return tuple(sorted(names))
