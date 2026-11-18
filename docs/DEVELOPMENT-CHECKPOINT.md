@@ -82,3 +82,7 @@ Start from this repository and read this document first. Then inspect the open p
 `/home/pi/cardmanager-test/PiPDFBox-CardManager`
 
 The virtual environment is `.venv`. Do not assume the current Pi checkout has the latest branch until `git status` and `git branch --show-current` are checked.
+
+## Latest Pi test feedback (2026-11-18)
+
+The user ran the new branch on the Raspberry Pi: 34 tests collected, 33 passed and one failed. The failing test was `test_loader_errors_are_wrapped_without_leaking_low_level_text`; implementation correctly wrapped the loader error with the message `PKCS#11 module could not be loaded`, while the older assertion expected `token discovery failed`. During review, the chained original exception was also identified as a possible way for low-level device details to appear in tracebacks. The branch was updated to suppress that exception chain (`raise ... from None`) and the test now checks the actual stable message and that `__cause__` is absent. These latest fixes are committed but have not yet been rerun by the user.
