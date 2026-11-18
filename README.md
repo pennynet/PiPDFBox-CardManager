@@ -62,3 +62,10 @@ Install optional PC/SC and PKCS#11 support only when needed:
 ```bash
 pip install -e ".[pcsc,pkcs11]"
 ```
+
+## Verified hardware reference
+
+A separate Raspberry Pi OS reference installation has been documented for the REINER SCT cyberJack RFID standard and D-TRUST Card 5.1 Standard. USB/PC-SC/OpenSC/PKCS#11 discovery and RSA-3072 mechanisms were observed on ARM64. The operator also reports a successful PDF signing and validation test using the archived pyHanko-based environment.
+
+See [the reference installation record](docs/reference-dtrust-cyberjack-pios-2026-11-18.md) for observed package versions, commands, scope and limitations. This reference does not imply that the current installation has been validated or that the CardManager backend/API is production-ready.
+
