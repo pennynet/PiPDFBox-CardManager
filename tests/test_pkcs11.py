@@ -58,10 +58,11 @@ def test_loader_errors_are_wrapped_without_leaking_low_level_text():
 
     module = Pkcs11Module("/usr/lib/example-pkcs11.so", library_loader=broken_loader)
 
-    with pytest.raises(Pkcs11Error, match="token discovery failed") as error:
+    with pytest.raises(Pkcs11Error, match="module could not be loaded") as error:
         module.list_tokens()
 
     assert "SECRET-123" not in str(error.value)
+    assert error.value.__cause__ is None
 
 
 def test_token_enumeration_does_not_require_session_or_pin():
