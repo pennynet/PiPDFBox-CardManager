@@ -1,0 +1,2 @@
+[pkcs11]
+module_path = "/opt/opensc-0.27.1/lib/opensc-pkcs11.so"

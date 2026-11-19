@@ -63,6 +63,10 @@ Install optional PC/SC and PKCS#11 support only when needed:
 pip install -e ".[pcsc,pkcs11]"
 ```
 
+## Current development checkpoint
+
+See [the development checkpoint](docs/DEVELOPMENT-CHECKPOINT.md) for the current branch, verified Raspberry Pi test results, implementation scope, hardware-validation status and exact next steps. This file is the hand-off starting point for resuming work in a later chat.
+
 ## Verified hardware reference
 
 A separate Raspberry Pi OS reference installation has been documented for the REINER SCT cyberJack RFID standard and D-TRUST Card 5.1 Standard. USB/PC/SC/OpenSC/PKCS#11 discovery and RSA-3072 mechanisms were observed on ARM64. The operator also reports a successful PDF signing and validation test using the archived pyHanko-based environment.

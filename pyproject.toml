@@ -13,7 +13,8 @@ dependencies = []
 
 [project.optional-dependencies]
 pcsc = ["pyscard>=2.0,<3"]
-pkcs11 = ["python-pkcs11>=0.9,<1"]
+pkcs11 = ["python-pkcs11>=0.9,<1", "cryptography>=42"]
+pdf-signing = ["pyHanko>=0.38,<0.39", "cryptography>=42"]
 dev = ["pytest>=8,<9", "ruff>=0.9"]
 
 [tool.setuptools.packages.find]

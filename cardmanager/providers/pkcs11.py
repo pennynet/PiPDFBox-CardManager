@@ -1,12 +1,21 @@
-"""Safe, read-only PKCS#11 token discovery.
+"""Safe, read-only PKCS#11 token and signing-certificate discovery.
 
-This module deliberately does not open authenticated sessions, request PINs,
-enumerate private-key objects or perform cryptographic operations.
+Only the D-TRUST Signature-PIN token is opened. The Authentication-PIN token
+is deliberately ignored. Sessions are read-only and unauthenticated; no PIN,
+private-key object, or signing operation is used.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Callable, Iterable
+
+from cardmanager.config import CardManagerConfig
+from cardmanager.providers.pkcs11_models import (
+    Pkcs11PrivateKeyDiscovery,
+    Pkcs11PrivateKeyInfo,
+    PrivateKeyVisibility,
+)
 
 
 class Pkcs11Error(RuntimeError):
@@ -23,8 +32,20 @@ class Pkcs11TokenInfo:
     flags: tuple[str, ...]
 
 
+@dataclass(frozen=True, slots=True)
+class Pkcs11SigningCertificate:
+    """Public metadata for a signing certificate; raw DER and subject are omitted."""
+
+    fingerprint_sha256: str
+    issuer_display_name: str
+    not_before: datetime
+    not_after: datetime
+    public_key_algorithm: str
+    public_key_size_bits: int
+
+
 class Pkcs11Module:
-    """Load one configured PKCS#11 module and enumerate public token metadata."""
+    """Load one configured PKCS#11 module and enumerate public metadata."""
 
     def __init__(
         self,
@@ -36,7 +57,19 @@ class Pkcs11Module:
         self._module_path = module_path
         self._library_loader = library_loader
 
-    def list_tokens(self) -> tuple[Pkcs11TokenInfo, ...]:
+    @classmethod
+    def from_config(
+        cls,
+        config: CardManagerConfig,
+        library_loader: Callable[[str], object] | None = None,
+    ) -> "Pkcs11Module":
+        """Create a PKCS#11 module from validated CardManager configuration."""
+        return cls(
+            config.pkcs11.module_path,
+            library_loader=library_loader,
+        )
+
+    def _load_library(self):
         loader = self._library_loader
         if loader is None:
             try:
@@ -46,10 +79,14 @@ class Pkcs11Module:
                     "PKCS#11 support requires the optional 'pkcs11' extra"
                 ) from exc
             loader = pkcs11.lib
-
         try:
-            library = loader(self._module_path)
-            tokens: Iterable[object] = library.get_tokens()
+            return loader(self._module_path)
+        except Exception as exc:
+            raise Pkcs11Error("PKCS#11 module could not be loaded") from None
+
+    def list_tokens(self) -> tuple[Pkcs11TokenInfo, ...]:
+        try:
+            tokens: Iterable[object] = self._load_library().get_tokens()
             return tuple(
                 Pkcs11TokenInfo(
                     label=_safe_text(getattr(token, "label", "")),
@@ -62,9 +99,147 @@ class Pkcs11Module:
         except Pkcs11Error:
             raise
         except Exception as exc:
-            # Do not include low-level exception text: some middleware errors
-            # may contain device or token identifiers.
             raise Pkcs11Error("PKCS#11 token discovery failed") from exc
+
+    def list_visible_private_keys(self) -> Pkcs11PrivateKeyDiscovery:
+        """Discover visible private-key metadata without login or PIN entry.
+
+        The method uses an unauthenticated, read-only session on the
+        D-TRUST Signature-PIN token. An empty result means only that no
+        private-key objects were visible in this session.
+        """
+        try:
+            from pkcs11 import Attribute, ObjectClass
+
+            tokens = tuple(self._load_library().get_tokens())
+            signature_tokens = [
+                token for token in tokens
+                if "(signature-pin)" in _safe_text(
+                    getattr(token, "label", "")
+                ).lower()
+                and _safe_text(
+                    getattr(token, "manufacturer_id", "")
+                ).lower().startswith("d-trust")
+            ]
+            if len(signature_tokens) != 1:
+                raise Pkcs11Error(
+                    "exactly one D-TRUST Signature-PIN token must be present"
+                )
+
+            discovered = []
+            with signature_tokens[0].open(rw=False) as session:
+                objects = session.get_objects({
+                    Attribute.CLASS: ObjectClass.PRIVATE_KEY,
+                })
+                for obj in objects:
+                    object_id = bytes(obj[Attribute.ID])
+                    raw_key_type = obj[Attribute.KEY_TYPE]
+
+                    discovered.append(Pkcs11PrivateKeyInfo(
+                        object_id=object_id,
+                        label="",
+                        key_type=_safe_text(
+                            getattr(raw_key_type, "name", None) or raw_key_type
+                        ).upper(),
+                    ))
+
+            keys = tuple(discovered)
+            if not keys:
+                visibility = PrivateKeyVisibility.NOT_VISIBLE
+            elif len(keys) == 1:
+                visibility = PrivateKeyVisibility.CANDIDATE_FOUND
+            else:
+                visibility = PrivateKeyVisibility.AMBIGUOUS
+
+            return Pkcs11PrivateKeyDiscovery(
+                visibility=visibility,
+                keys=keys,
+            )
+        except Pkcs11Error:
+            raise
+        except Exception:
+            raise Pkcs11Error(
+                "D-TRUST private-key visibility discovery failed"
+            ) from None
+
+    def list_signing_certificates(self) -> tuple[Pkcs11SigningCertificate, ...]:
+        """Read signing certificates from the D-TRUST Signature-PIN token only.
+
+        The method opens an unauthenticated, read-only PKCS#11 session. It
+        never enumerates private keys, logs in, requests a PIN, or accesses the
+        Authentication-PIN token.
+        """
+        try:
+            from pkcs11 import Attribute, ObjectClass
+            from cryptography import x509
+            from cryptography.hazmat.primitives import hashes
+            from cryptography.hazmat.primitives.asymmetric import (
+                dsa, ec, ed25519, ed448, rsa,
+            )
+            from cryptography.x509.oid import NameOID
+
+            tokens = tuple(self._load_library().get_tokens())
+            signature_tokens = [
+                token for token in tokens
+                if "(signature-pin)" in _safe_text(getattr(token, "label", "")).lower()
+                and _safe_text(getattr(token, "manufacturer_id", "")).lower().startswith("d-trust")
+            ]
+            if len(signature_tokens) != 1:
+                raise Pkcs11Error(
+                    "exactly one D-TRUST Signature-PIN token must be present"
+                )
+
+            discovered = []
+            token = signature_tokens[0]
+            with token.open(rw=False) as session:
+                objects = session.get_objects({
+                    Attribute.CLASS: ObjectClass.CERTIFICATE,
+                })
+                for obj in objects:
+                    der = obj[Attribute.VALUE]
+                    certificate = x509.load_der_x509_certificate(bytes(der))
+                    try:
+                        usage = certificate.extensions.get_extension_for_class(
+                            x509.KeyUsage
+                        ).value
+                    except x509.ExtensionNotFound:
+                        continue
+                    if not (usage.digital_signature or usage.content_commitment):
+                        continue
+
+                    public_key = certificate.public_key()
+                    if isinstance(public_key, rsa.RSAPublicKey):
+                        algorithm, key_size = "RSA", public_key.key_size
+                    elif isinstance(public_key, ec.EllipticCurvePublicKey):
+                        algorithm, key_size = "EC", public_key.key_size
+                    elif isinstance(public_key, dsa.DSAPublicKey):
+                        algorithm, key_size = "DSA", public_key.key_size
+                    elif isinstance(public_key, ed25519.Ed25519PublicKey):
+                        algorithm, key_size = "ED25519", 256
+                    elif isinstance(public_key, ed448.Ed448PublicKey):
+                        algorithm, key_size = "ED448", 456
+                    else:
+                        continue
+
+                    common_names = certificate.issuer.get_attributes_for_oid(
+                        NameOID.COMMON_NAME
+                    )
+                    issuer = common_names[0].value if common_names else "Unknown issuer"
+                    discovered.append(Pkcs11SigningCertificate(
+                        fingerprint_sha256=certificate.fingerprint(hashes.SHA256()).hex(),
+                        issuer_display_name=issuer,
+                        not_before=certificate.not_valid_before_utc,
+                        not_after=certificate.not_valid_after_utc,
+                        public_key_algorithm=algorithm,
+                        public_key_size_bits=key_size,
+                    ))
+            return tuple(discovered)
+        except Pkcs11Error:
+            raise
+        except Exception as exc:
+            raise Pkcs11Error(
+                "D-TRUST signing-certificate discovery failed"
+            ) from exc
 
 
 def _safe_text(value: object) -> str:
@@ -77,7 +252,7 @@ def _normalise_flags(value: object) -> tuple[str, ...]:
     if value is None:
         return ()
     try:
-        values = tuple(value)  # PKCS#11 flag sets are iterable
+        values = tuple(value)
     except TypeError:
         values = (value,)
     names = {
