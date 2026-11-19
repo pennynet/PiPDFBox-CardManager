@@ -243,3 +243,24 @@ def test_signing_certificate_discovery_does_not_open_ambiguous_signature_tokens(
 
     assert first.opened is False
     assert second.opened is False
+
+
+
+def test_pkcs11_module_can_be_created_from_config():
+    from cardmanager.config import CardManagerConfig, Pkcs11Config
+
+    loaded_paths = []
+    config = CardManagerConfig(
+        pkcs11=Pkcs11Config(
+            module_path="/usr/lib/example-pkcs11.so",
+        ),
+    )
+
+    def loader(path):
+        loaded_paths.append(path)
+        return FakePkcs11Library([])
+
+    module = Pkcs11Module.from_config(config, library_loader=loader)
+
+    assert module.list_tokens() == ()
+    assert loaded_paths == ["/usr/lib/example-pkcs11.so"]

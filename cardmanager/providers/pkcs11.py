@@ -10,6 +10,8 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Callable, Iterable
 
+from cardmanager.config import CardManagerConfig
+
 
 class Pkcs11Error(RuntimeError):
     """Raised when a PKCS#11 module cannot be loaded or queried."""
@@ -49,6 +51,18 @@ class Pkcs11Module:
             raise ValueError("module_path must be a non-empty path")
         self._module_path = module_path
         self._library_loader = library_loader
+
+    @classmethod
+    def from_config(
+        cls,
+        config: CardManagerConfig,
+        library_loader: Callable[[str], object] | None = None,
+    ) -> "Pkcs11Module":
+        """Create a PKCS#11 module from validated CardManager configuration."""
+        return cls(
+            config.pkcs11.module_path,
+            library_loader=library_loader,
+        )
 
     def _load_library(self):
         loader = self._library_loader
