@@ -106,6 +106,7 @@ from cryptography.x509.oid import NameOID
 from pkcs11 import Attribute, ObjectClass
 
 from cardmanager.providers.pkcs11 import Pkcs11Error
+from cardmanager.providers.pkcs11_models import PrivateKeyVisibility
 
 
 class FakeCertificateObject:
@@ -115,6 +116,23 @@ class FakeCertificateObject:
     def __getitem__(self, attribute):
         assert attribute is Attribute.VALUE
         return self.der
+
+
+class FakePrivateKeyObject:
+    def __init__(self, object_id=b"\\x02", label="Test signing key", key_type="RSA"):
+        self.attributes = {
+            Attribute.ID: object_id,
+            Attribute.LABEL: label,
+            Attribute.KEY_TYPE: key_type,
+        }
+
+    def __getitem__(self, attribute):
+        assert attribute in (
+            Attribute.ID,
+            Attribute.LABEL,
+            Attribute.KEY_TYPE,
+        )
+        return self.attributes[attribute]
 
 
 class FakeSession:
@@ -128,7 +146,10 @@ class FakeSession:
         return False
 
     def get_objects(self, query):
-        assert query == {Attribute.CLASS: ObjectClass.CERTIFICATE}
+        assert query in (
+            {Attribute.CLASS: ObjectClass.CERTIFICATE},
+            {Attribute.CLASS: ObjectClass.PRIVATE_KEY},
+        )
         return iter(self.objects)
 
 
@@ -264,3 +285,86 @@ def test_pkcs11_module_can_be_created_from_config():
 
     assert module.list_tokens() == ()
     assert loaded_paths == ["/usr/lib/example-pkcs11.so"]
+
+
+def make_private_key_discovery_module(objects, extra_tokens=()):
+    signature = FakePkcs11Token(
+        "D-TRUST Card (Signature-PIN)",
+        "D-TRUST GmbH (C)",
+        objects,
+    )
+    module = Pkcs11Module(
+        "/usr/lib/example-pkcs11.so",
+        library_loader=lambda path: FakePkcs11Library(
+            [signature, *extra_tokens]
+        ),
+    )
+    return module, signature
+
+
+def test_private_key_discovery_reports_not_visible_when_no_objects_exist():
+    module, signature = make_private_key_discovery_module([])
+
+    result = module.list_visible_private_keys()
+
+    assert result.visibility is PrivateKeyVisibility.NOT_VISIBLE
+    assert result.keys == ()
+    assert signature.opened is True
+
+
+def test_private_key_discovery_reports_one_candidate_without_login():
+    key = FakePrivateKeyObject(
+        object_id=b"\\x02",
+        label="Test signing key",
+        key_type="RSA",
+    )
+    module, signature = make_private_key_discovery_module([key])
+
+    result = module.list_visible_private_keys()
+
+    assert result.visibility is PrivateKeyVisibility.CANDIDATE_FOUND
+    assert len(result.keys) == 1
+    assert result.keys[0].object_id == b"\\x02"
+    assert result.keys[0].label == ""
+    assert result.keys[0].key_type == "RSA"
+    assert signature.opened is True
+
+
+def test_private_key_discovery_reports_ambiguous_for_multiple_objects():
+    keys = [
+        FakePrivateKeyObject(object_id=b"\\x02", label="First key"),
+        FakePrivateKeyObject(object_id=b"\\x03", label="Second key"),
+    ]
+    module, _ = make_private_key_discovery_module(keys)
+
+    result = module.list_visible_private_keys()
+
+    assert result.visibility is PrivateKeyVisibility.AMBIGUOUS
+    assert len(result.keys) == 2
+
+
+def test_private_key_discovery_never_opens_authentication_token():
+    authentication = FakePkcs11Token(
+        "D-TRUST Card (Authentication-PIN)",
+        "D-TRUST GmbH (C)",
+    )
+    module, signature = make_private_key_discovery_module(
+        [FakePrivateKeyObject()],
+        extra_tokens=(authentication,),
+    )
+
+    module.list_visible_private_keys()
+
+    assert signature.opened is True
+    assert authentication.opened is False
+
+
+def test_private_key_discovery_does_not_expose_object_labels():
+    sensitive_label = "Personal Name - Example Identifier"
+    key = FakePrivateKeyObject(label=sensitive_label)
+    module, _ = make_private_key_discovery_module([key])
+
+    result = module.list_visible_private_keys()
+
+    assert result.keys[0].label == ""
+    assert sensitive_label not in repr(result)

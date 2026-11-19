@@ -11,6 +11,11 @@ from datetime import datetime
 from typing import Callable, Iterable
 
 from cardmanager.config import CardManagerConfig
+from cardmanager.providers.pkcs11_models import (
+    Pkcs11PrivateKeyDiscovery,
+    Pkcs11PrivateKeyInfo,
+    PrivateKeyVisibility,
+)
 
 
 class Pkcs11Error(RuntimeError):
@@ -95,6 +100,67 @@ class Pkcs11Module:
             raise
         except Exception as exc:
             raise Pkcs11Error("PKCS#11 token discovery failed") from exc
+
+    def list_visible_private_keys(self) -> Pkcs11PrivateKeyDiscovery:
+        """Discover visible private-key metadata without login or PIN entry.
+
+        The method uses an unauthenticated, read-only session on the
+        D-TRUST Signature-PIN token. An empty result means only that no
+        private-key objects were visible in this session.
+        """
+        try:
+            from pkcs11 import Attribute, ObjectClass
+
+            tokens = tuple(self._load_library().get_tokens())
+            signature_tokens = [
+                token for token in tokens
+                if "(signature-pin)" in _safe_text(
+                    getattr(token, "label", "")
+                ).lower()
+                and _safe_text(
+                    getattr(token, "manufacturer_id", "")
+                ).lower().startswith("d-trust")
+            ]
+            if len(signature_tokens) != 1:
+                raise Pkcs11Error(
+                    "exactly one D-TRUST Signature-PIN token must be present"
+                )
+
+            discovered = []
+            with signature_tokens[0].open(rw=False) as session:
+                objects = session.get_objects({
+                    Attribute.CLASS: ObjectClass.PRIVATE_KEY,
+                })
+                for obj in objects:
+                    object_id = bytes(obj[Attribute.ID])
+                    raw_key_type = obj[Attribute.KEY_TYPE]
+
+                    discovered.append(Pkcs11PrivateKeyInfo(
+                        object_id=object_id,
+                        label="",
+                        key_type=_safe_text(
+                            getattr(raw_key_type, "name", None) or raw_key_type
+                        ).upper(),
+                    ))
+
+            keys = tuple(discovered)
+            if not keys:
+                visibility = PrivateKeyVisibility.NOT_VISIBLE
+            elif len(keys) == 1:
+                visibility = PrivateKeyVisibility.CANDIDATE_FOUND
+            else:
+                visibility = PrivateKeyVisibility.AMBIGUOUS
+
+            return Pkcs11PrivateKeyDiscovery(
+                visibility=visibility,
+                keys=keys,
+            )
+        except Pkcs11Error:
+            raise
+        except Exception:
+            raise Pkcs11Error(
+                "D-TRUST private-key visibility discovery failed"
+            ) from None
 
     def list_signing_certificates(self) -> tuple[Pkcs11SigningCertificate, ...]:
         """Read signing certificates from the D-TRUST Signature-PIN token only.
