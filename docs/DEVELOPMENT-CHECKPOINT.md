@@ -72,7 +72,7 @@ This verifies real-card certificate discovery, not certificate-chain validation,
 - The current token selection relies on the observed D-TRUST token label/manufacturer metadata. Keep it fail-closed if missing or ambiguous.
 - The real-card read-only certificate enumeration has now been tested successfully on the Raspberry Pi.
 - The test suite uses generated test certificates and fake PKCS#11 token/session objects; it does not substitute for the successful hardware test above.
-- Do not add PIN collection, login, private-key reads, signing, or Authentication-PIN access to this milestone.
+- Do not add Signature-PIN collection/login, private-key reads, signing, or Authentication-PIN access to this milestone. CAN/PACE is a separate secure-channel bootstrap and may be explicitly required for Card 5.1; it is not a Signature-PIN login.
 
 ## Next steps
 
@@ -113,3 +113,17 @@ Do not implement a workaround by disabling protected authentication, suppressing
 Before changing the provider, identify a supported python-pkcs11/OpenSC API path that can select the intended slot/token without the interactive token-metadata call, and verify it on the real card. Keep reader/slot discovery, token metadata, certificate enumeration, and any protected-path interaction as separate explicit operations. If the library cannot provide this safely, expose the operation as potentially interactive and document that fact rather than attempting a low-level bypass.
 
 No PIN login, private-key enumeration, signing, Authentication-PIN access, or security-setting changes were performed in this investigation.
+
+
+## CAN/PACE policy and future storage option (agreed 2026-11-18)
+
+The CAN requirement is accepted as a normal, legitimate part of using the D-TRUST Card 5.1 Standard. It is not a reason to bypass the protected reader path or to treat the card as unsupported.
+
+- When the card/OpenSC requires PACE, CardManager should make that interaction explicit and user-understandable.
+- The CAN must be entered through the cyberJack's protected keypad/authentication path. Do not collect it in a shell prompt, web form, ordinary application text field, command-line argument, or environment variable.
+- The MVP does not persist the CAN. It must not appear in logs, diagnostics, configuration, crash reports, or other persistent application data.
+- **Future enhancement retained:** optional secure CAN storage may be considered later, potentially allowing a one-time initial entry. This is deliberately deferred, not rejected. It requires a separate security design and explicit user opt-in, including a review of storage protection, lifecycle/expiry, deletion, and user-visible status.
+- CAN/PACE is distinct from Signature-PIN authentication. A CAN prompt must never be mistaken for a Signature-PIN prompt, and CAN must not be used as a substitute for signing authorization.
+- The technical implementation must use supported OpenSC/PKCS#11 protected-path behavior. Do not disable the protected path, suppress a reader prompt, or introduce a software-side CAN fallback.
+
+This policy updates the earlier investigation note: CAN-free discovery is not a product requirement. The open technical question is how to make the PACE interaction explicit and reliably supported by the chosen PKCS#11/OpenSC API.
